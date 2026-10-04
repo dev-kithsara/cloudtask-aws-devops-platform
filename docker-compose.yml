@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cloudtask
+      POSTGRES_PASSWORD: cloudtask
+      POSTGRES_DB: cloudtask
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cloudtask -d cloudtask']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://cloudtask:cloudtask@postgres:5432/cloudtask?schema=public
+      JWT_SECRET: local-development-secret-at-least-32-chars
+      CORS_ORIGIN: http://localhost:5173
+      PORT: 3000
+      AWS_REGION: us-east-1
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "npm ci && npm run dev -w @cloudtask/frontend -- --host 0.0.0.0"
+    environment:
+      VITE_API_BASE_URL: http://localhost:3000
+    volumes:
+      - .:/workspace
+      - frontend-node-modules:/workspace/node_modules
+    ports:
+      - '5173:5173'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  frontend-node-modules:

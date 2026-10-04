@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply m-0 min-h-screen bg-slate-950 text-slate-100 antialiased;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+button,
+input,
+textarea,
+select {
+  @apply rounded-lg;
+}
+.panel {
+  @apply rounded-2xl border border-slate-800 bg-slate-900/80 shadow-xl;
+}
+.field {
+  @apply w-full border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-indigo-500;
+}
+.button {
+  @apply rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50;
+}

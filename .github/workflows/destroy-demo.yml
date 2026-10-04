@@ -1,0 +1,52 @@
+name: Destroy demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: Type DESTROY exactly
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cloudtask-demo
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    environment: demo
+    env:
+      AWS_REGION: us-east-1
+      TF_IN_AUTOMATION: 'true'
+    steps:
+      - name: Require exact confirmation
+        if: inputs.confirm_destroy != 'DESTROY'
+        run: echo 'Confirmation must equal DESTROY' && exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run build -w @cloudtask/audit-consumer
+      - run: zip -j functions/audit-consumer/dist/audit-consumer.zip functions/audit-consumer/dist/index.js
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.8 }
+      - name: Initialize remote state
+        working-directory: infra/terraform/environments/demo
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="key=cloudtask/demo/terraform.tfstate" -backend-config="region=${AWS_REGION}" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Destroy disposable demo environment
+        working-directory: infra/terraform/environments/demo
+        run: terraform destroy -auto-approve -var="owner=${{ vars.PROJECT_OWNER }}" -var="image_uri=${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}" -var="alert_email=${{ vars.ALERT_EMAIL }}"
+      - name: Post-destroy checklist
+        run: |
+          echo '## Verify in AWS Billing/Resource Explorer' >> "$GITHUB_STEP_SUMMARY"
+          echo '- No ECS tasks/service, ALB, RDS instance, NAT Gateway, Lambda, SQS, SNS, CloudFront, or Config recorder remains.' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Bootstrap state bucket, ECR, OIDC provider, deployment role, and budget intentionally remain.' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Follow docs/runbook.md for final bootstrap cleanup after the portfolio demo.' >> "$GITHUB_STEP_SUMMARY"

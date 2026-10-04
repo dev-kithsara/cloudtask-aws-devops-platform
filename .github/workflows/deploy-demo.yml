@@ -1,0 +1,97 @@
+name: Deploy demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_governance:
+        description: Enable temporary AWS Config evidence resources
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cloudtask-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: demo
+    env:
+      AWS_REGION: us-east-1
+      TF_IN_AUTOMATION: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate -w @cloudtask/api
+      - run: npm test
+      - run: npm run build
+      - name: Package Lambda
+        run: zip -j functions/audit-consumer/dist/audit-consumer.zip functions/audit-consumer/dist/index.js
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and scan immutable API image
+        env:
+          IMAGE_URI: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+        run: docker build -f apps/api/Dockerfile -t "$IMAGE_URI" .
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+      - name: Push API image
+        run: docker push "${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Initialize remote state
+        working-directory: infra/terraform/environments/demo
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="key=cloudtask/demo/terraform.tfstate" -backend-config="region=${AWS_REGION}" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Terraform plan
+        working-directory: infra/terraform/environments/demo
+        run: terraform plan -out=demo.tfplan -var="owner=${{ vars.PROJECT_OWNER }}" -var="image_uri=${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}" -var="alert_email=${{ vars.ALERT_EMAIL }}" -var="enable_governance=${{ inputs.enable_governance }}"
+      - name: Terraform apply
+        working-directory: infra/terraform/environments/demo
+        run: terraform apply -auto-approve demo.tfplan
+      - name: Read deployment outputs
+        id: outputs
+        working-directory: infra/terraform/environments/demo
+        run: |
+          echo "api_url=$(terraform output -raw api_url)" >> "$GITHUB_OUTPUT"
+          echo "bucket=$(terraform output -raw frontend_bucket_name)" >> "$GITHUB_OUTPUT"
+          echo "distribution=$(terraform output -raw cloudfront_distribution_id)" >> "$GITHUB_OUTPUT"
+          echo "frontend_url=$(terraform output -raw frontend_url)" >> "$GITHUB_OUTPUT"
+      - name: Build frontend for deployed API
+        env:
+          VITE_API_BASE_URL: ${{ steps.outputs.outputs.api_url }}
+        run: npm run build -w @cloudtask/frontend
+      - name: Upload frontend and invalidate cache
+        run: |
+          aws s3 sync apps/frontend/dist "s3://${{ steps.outputs.outputs.bucket }}" --delete
+          aws cloudfront create-invalidation --distribution-id "${{ steps.outputs.outputs.distribution }}" --paths "/*"
+      - name: Smoke test API health
+        run: |
+          for attempt in {1..20}; do
+            if curl --fail --silent --show-error "${{ steps.outputs.outputs.api_url }}/health"; then exit 0; fi
+            sleep 15
+          done
+          exit 1
+      - name: Deployment summary
+        run: |
+          echo "Frontend: ${{ steps.outputs.outputs.frontend_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "API: ${{ steps.outputs.outputs.api_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "⚠️ Collect evidence and run Destroy demo on the same day." >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate -w @cloudtask/api
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Build API container
+        run: docker build -f apps/api/Dockerfile -t cloudtask-api:${{ github.sha }} .
+      - name: Scan API container
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: cloudtask-api:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Terraform formatting
+        run: terraform fmt -check -recursive infra
+      - name: Validate bootstrap
+        working-directory: infra/bootstrap/terraform
+        run: terraform init -backend=false && terraform validate
+      - name: Prepare Lambda archive for static validation
+        run: zip -j functions/audit-consumer/dist/audit-consumer.zip functions/audit-consumer/dist/index.js
+      - name: Validate demo environment
+        working-directory: infra/terraform/environments/demo
+        run: terraform init -backend=false && terraform validate
