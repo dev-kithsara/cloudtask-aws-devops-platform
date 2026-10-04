@@ -1,61 +1,197 @@
 # CloudTask — AWS DevOps & Cloud Engineering Platform
 
-Production-inspired, cost-optimized deployment of a full-stack task application on AWS.
+**A production-inspired, cost-optimized AWS platform that demonstrates full-stack delivery, Infrastructure as Code, container orchestration, event-driven processing, observability, security, and repeatable teardown.**
 
-## Highlights
+[![CI](https://github.com/dev-kithsara/cloudtask-aws-devops-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/dev-kithsara/cloudtask-aws-devops-platform/actions/workflows/ci.yml)
+![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-844FBA?logo=terraform&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-us--east--1-FF9900?logo=amazonwebservices&logoColor=white)
+![Cost Target](https://img.shields.io/badge/demo%20target-%3C%20%245-2E8B57)
 
-- Infrastructure as Code with Terraform
-- CI/CD with GitHub Actions and AWS OIDC
-- Docker images stored in Amazon ECR
-- Node.js API on Amazon ECS Fargate behind an ALB
-- React frontend on S3 + CloudFront
-- PostgreSQL on private Amazon RDS subnets
-- SNS/SQS/DLQ event-driven workflow
-- CloudWatch monitoring and SNS alerts
-- AWS Config governance checks
-- Designed for a short-lived AWS demo with a target spend below $5
+CloudTask uses a straightforward task-management application as the workload for a broader cloud engineering project. The application is intentionally simple; the main engineering signal is the platform around it: Terraform modules, secure AWS networking, GitHub OIDC, automated validation, immutable container delivery, asynchronous processing, monitoring, failure recovery, and cost-controlled cleanup.
 
-CloudTask is a **production-inspired, cost-optimized portfolio architecture**, not a claim of a fully production-grade live environment. The task app is deliberately small so the repository can foreground architecture, delivery, security, operations, and cost engineering.
+> **Portfolio scope:** This is a production-inspired demo architecture, not a claim of a continuously running production environment. It is designed for short evidence-collection sessions with same-day teardown and a target AWS spend below $5.
+
+## What this project demonstrates
+
+| Engineering area       | Implementation evidence                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Cloud architecture     | Two-AZ VPC, internet-facing ALB, ECS Fargate, isolated RDS subnets, private S3 origin, and CloudFront                          |
+| DevOps delivery        | GitHub Actions, Docker build, Trivy scanning, ECR SHA tags, Terraform plan/apply/destroy, and smoke testing                    |
+| Infrastructure as Code | Reusable Terraform modules, environment composition, remote-state bootstrap, variables, outputs, and common tags               |
+| Identity and security  | GitHub OIDC, separate runtime roles, SSM SecureString, security-group chaining, non-root containers, and private data services |
+| Event-driven design    | `task.created` events through SNS, SQS, Lambda, retry handling, and a dead-letter queue                                        |
+| Observability          | Structured application logs, short-retention CloudWatch log groups, ALB 5XX and ECS CPU alarms, and SNS alerts                 |
+| Resilience             | ECS desired-state recovery, ALB health checks, readiness checks, queue retries, and DLQ isolation                              |
+| Governance             | Optional, narrowly scoped AWS Config checks for S3 encryption and versioning                                                   |
+| Cost engineering       | No NAT Gateway, one small Fargate task, Single-AZ RDS, manual deployments, budget alerts, and automated teardown               |
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-  U[Users] --> CF[CloudFront]
-  CF --> S3[(Private S3 SPA)]
-  U --> ALB[Application Load Balancer]
-  ALB --> ECS[ECS Fargate API\n1 x 0.25 vCPU / 0.5 GB]
-  ECS --> RDS[(RDS PostgreSQL\nprivate isolated subnets)]
-  ECS --> SNS[SNS task-events]
-  SNS --> SQS[SQS audit queue]
-  SQS --> L[Lambda audit consumer]
-  SQS -. 3 failures .-> DLQ[SQS DLQ]
-  ECS --> CW[CloudWatch Logs / Alarms]
-  L --> CW
-  GH[GitHub Actions] -->|OIDC| IAM[IAM deploy role]
-  IAM --> ECR[ECR SHA-tagged image]
+flowchart TB
+  User([User])
+
+  subgraph Delivery[GitHub delivery path]
+    GHA[GitHub Actions]
+    OIDC[GitHub OIDC]
+    ECR[(Amazon ECR)]
+    TF[Terraform]
+    GHA --> OIDC
+    GHA -->|build, scan, SHA tag| ECR
+    GHA --> TF
+  end
+
+  subgraph AWS[AWS demo environment]
+    CF[Amazon CloudFront]
+    S3[(Private Amazon S3 bucket)]
+    ALB[Application Load Balancer]
+
+    subgraph VPC[Two-AZ VPC]
+      subgraph Public[Public subnets]
+        ECS[ECS Fargate API\n1 task · 0.25 vCPU · 0.5 GB]
+      end
+      subgraph Isolated[Isolated database subnets]
+        RDS[(Amazon RDS PostgreSQL\nSingle-AZ · db.t4g.micro)]
+      end
+    end
+
+    SNS[Amazon SNS\ntask-events]
+    SQS[Amazon SQS\naudit queue]
+    Lambda[AWS Lambda\naudit consumer]
+    DLQ[Amazon SQS DLQ]
+    CW[Amazon CloudWatch]
+
+    CF --> S3
+    ALB --> ECS
+    ECS --> RDS
+    ECS -->|task.created| SNS
+    SNS --> SQS
+    SQS --> Lambda
+    SQS -. after 3 failed receives .-> DLQ
+    ECS --> CW
+    Lambda --> CW
+  end
+
+  User -->|React SPA| CF
+  User -->|REST API| ALB
   ECR --> ECS
+  TF --> AWS
 ```
 
-The ALB spans two public subnets. For the short demo only, the Fargate task also runs in public subnets with a public IP so it can reach AWS APIs without a NAT Gateway. Its security group has no public ingress: port 3000 is allowed only from the ALB security group. RDS uses two isolated subnet placements with no internet route and accepts PostgreSQL only from the ECS security group.
-
-## Repository map
+### Network security path
 
 ```text
-apps/frontend                 React, TypeScript, Vite, Tailwind
-apps/api                      Express, Prisma, JWT, API tests, Dockerfile
-functions/audit-consumer      TypeScript SQS/Lambda consumer and tests
-infra/bootstrap/terraform     state S3, ECR, GitHub OIDC role, $5 budget
-infra/terraform/modules       network, frontend, ECS/ALB, RDS, messaging,
-                              observability, governance
-infra/terraform/environments/demo  disposable demo composition
-.github/workflows             CI and manual deploy/destroy pipelines
-docs                          architecture notes, runbook, evidence checklist
+Internet
+   |
+   v
+ALB security group :80
+   |  only referenced source
+   v
+ECS security group :3000
+   |  only referenced source
+   v
+RDS security group :5432
 ```
 
-## Local setup
+The demo deliberately runs Fargate in public subnets with `assign_public_ip=true` to avoid NAT Gateway cost. The task still has no direct internet ingress: only the ALB security group can reach the API port. RDS is not publicly accessible, has no internet route, and accepts PostgreSQL traffic only from the ECS security group.
 
-Requirements: Node.js 22+, npm, and PostgreSQL 16 (or Docker).
+## Deliberate cost constraints
+
+| Component      | Demo configuration                    | Cost rationale                                                      |
+| -------------- | ------------------------------------- | ------------------------------------------------------------------- |
+| NAT Gateway    | Not deployed                          | Avoids hourly and data-processing charges                           |
+| ECS Fargate    | One task, 0.25 vCPU, 0.5 GB           | Smallest practical API footprint                                    |
+| RDS PostgreSQL | `db.t4g.micro`, Single-AZ, 20 GiB gp3 | Disposable portfolio workload rather than high availability         |
+| CloudWatch     | One-day log retention                 | Enough time to collect evidence without retaining logs indefinitely |
+| AWS Config     | Disabled by default                   | Enabled only briefly for governance evidence                        |
+| ECR            | Immutable tags and lifecycle cleanup  | Prevents uncontrolled image accumulation                            |
+| Deployment     | Manual `workflow_dispatch`            | Avoids creating paid resources on every push                        |
+| Teardown       | Guarded manual workflow               | Enforces deliberate same-day cleanup                                |
+
+The bootstrap layer can create a $5 monthly AWS Budget with alerts at approximately $1, $3, and $4.50. AWS Budgets are delayed alerts, **not hard spending caps**. See [COST.md](COST.md) for the complete cost model.
+
+## Application capabilities
+
+The React dashboard supports:
+
+- registration and login;
+- JWT-based authenticated sessions;
+- creating, reading, editing, completing, filtering, and deleting tasks;
+- `LOW`, `MEDIUM`, and `HIGH` priorities;
+- optional descriptions and due dates;
+- loading, empty, error, authenticated, and unauthenticated states.
+
+The API provides:
+
+- bcrypt password hashing;
+- Zod request validation;
+- user-scoped data access;
+- centralized structured errors;
+- Helmet, configured CORS, and bounded JSON request bodies;
+- process liveness and database readiness endpoints;
+- dependency-injected event publishing so local tests never require AWS credentials.
+
+## Technology stack
+
+| Layer            | Technologies                                                 |
+| ---------------- | ------------------------------------------------------------ |
+| Frontend         | React, TypeScript, Vite, Tailwind CSS, React Testing Library |
+| API              | Node.js 22, TypeScript, Express, Prisma, Zod, JWT, bcryptjs  |
+| Data             | PostgreSQL locally and Amazon RDS PostgreSQL in AWS          |
+| Async processing | AWS SDK v3, SNS, SQS, DLQ, Lambda                            |
+| Testing          | Vitest, Supertest, React Testing Library                     |
+| Containers       | Docker multi-stage build and Docker Compose                  |
+| Infrastructure   | Terraform with reusable modules                              |
+| Delivery         | GitHub Actions, GitHub OIDC, Amazon ECR, Trivy               |
+
+## Repository structure
+
+```text
+cloudtask-aws-devops-platform/
+├── apps/
+│   ├── frontend/                 # React SPA
+│   └── api/                      # Express API, Prisma schema, migrations, tests
+├── functions/
+│   └── audit-consumer/           # SQS-triggered Lambda and tests
+├── infra/
+│   ├── bootstrap/terraform/      # state bucket, ECR, OIDC role, budget
+│   └── terraform/
+│       ├── modules/              # network, frontend, ECS/ALB, RDS, messaging,
+│       │                         # observability, governance
+│       └── environments/demo/    # disposable demo composition
+├── .github/workflows/
+│   ├── ci.yml
+│   ├── deploy-demo.yml
+│   └── destroy-demo.yml
+├── docs/
+│   ├── architecture/
+│   ├── evidence/
+│   └── runbook.md
+├── docker-compose.yml
+├── Makefile
+├── COST.md
+├── SECURITY.md
+└── README.md
+```
+
+## Run locally
+
+### Prerequisites
+
+- Node.js 22 or later
+- npm
+- Docker Desktop for the recommended PostgreSQL workflow
+
+### Option 1: run the full stack with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Open the frontend at `http://localhost:5173`. The API is available at `http://localhost:3000`.
+
+### Option 2: run the application in development mode
 
 ```bash
 cp .env.example .env
@@ -65,43 +201,97 @@ docker compose up -d postgres
 npm run prisma:migrate -w @cloudtask/api
 npm run prisma:seed -w @cloudtask/api
 npm run dev -w @cloudtask/api
+```
+
+In a second terminal:
+
+```bash
 npm run dev -w @cloudtask/frontend
 ```
 
-Open `http://localhost:5173`. The seed account is `demo@cloudtask.local` / `DemoPassword123!` and is only local non-sensitive sample data. Or run the complete stack with `docker compose up --build`. The API container applies committed Prisma migrations before starting.
+The optional development seed creates:
 
-Important environment variables:
+```text
+Email:    demo@cloudtask.local
+Password: DemoPassword123!
+```
 
-| Variable            | Purpose                                              |
-| ------------------- | ---------------------------------------------------- |
-| `DATABASE_URL`      | PostgreSQL connection string                         |
-| `JWT_SECRET`        | 32+ character signing secret                         |
-| `CORS_ORIGIN`       | comma-separated allowed browser origins              |
-| `SNS_TOPIC_ARN`     | optional; absent uses a safe local structured logger |
-| `AWS_REGION`        | SDK region, default `us-east-1`                      |
-| `VITE_API_BASE_URL` | frontend API origin; never hardcoded for production  |
+These values are local sample data only and are not used by the AWS environment.
 
-## Application and API
+## Environment variables
 
-Register and login use bcrypt password hashing and one-hour JWTs. Tasks are always filtered by authenticated user. Input is validated with Zod, and Helmet, bounded JSON input, configured CORS, centralized errors, and production-safe responses provide sensible baseline security.
+Copy `.env.example` to `.env` for local development. Never commit `.env`, credentials, JWTs, Terraform state, plan files, or real secrets.
 
-| Method             | Path                 | Purpose                                   |
-| ------------------ | -------------------- | ----------------------------------------- |
-| `GET`              | `/health`            | process liveness                          |
-| `GET`              | `/ready`             | readiness including database connectivity |
-| `POST`             | `/api/auth/register` | create account                            |
-| `POST`             | `/api/auth/login`    | issue JWT                                 |
-| `GET/POST`         | `/api/tasks`         | list/create current user's tasks          |
-| `GET/PATCH/DELETE` | `/api/tasks/:id`     | read/update/delete owned task             |
+| Variable            | Used by  | Purpose                                                 |
+| ------------------- | -------- | ------------------------------------------------------- |
+| `DATABASE_URL`      | API      | PostgreSQL connection string                            |
+| `JWT_SECRET`        | API      | JWT signing value with at least 32 characters           |
+| `CORS_ORIGIN`       | API      | Comma-separated allowed browser origins                 |
+| `PORT`              | API      | HTTP port, default `3000`                               |
+| `AWS_REGION`        | API      | AWS SDK region, default `us-east-1`                     |
+| `SNS_TOPIC_ARN`     | API      | Optional SNS topic; absence enables a safe local logger |
+| `VITE_API_BASE_URL` | Frontend | API origin injected at frontend build time              |
 
-A successful task creation publishes a non-sensitive `task.created` event when SNS is configured. SNS wraps the event for SQS. Lambda validates both the envelope and event, writes structured audit logs, and returns partial batch failures so malformed messages retry and move to the DLQ after three receives.
+In AWS, Terraform creates SSM SecureString parameters for the database URL and JWT signing secret. ECS injects them into the container through its execution role.
 
-## Quality commands
+## API reference
+
+| Method   | Endpoint             | Authentication | Purpose                                  |
+| -------- | -------------------- | -------------- | ---------------------------------------- |
+| `GET`    | `/health`            | No             | Process liveness                         |
+| `GET`    | `/ready`             | No             | Database readiness                       |
+| `POST`   | `/api/auth/register` | No             | Register and issue a JWT                 |
+| `POST`   | `/api/auth/login`    | No             | Authenticate and issue a JWT             |
+| `GET`    | `/api/tasks`         | Bearer JWT     | List the current user's tasks            |
+| `POST`   | `/api/tasks`         | Bearer JWT     | Create a task and publish `task.created` |
+| `GET`    | `/api/tasks/:id`     | Bearer JWT     | Read an owned task                       |
+| `PATCH`  | `/api/tasks/:id`     | Bearer JWT     | Update or complete an owned task         |
+| `DELETE` | `/api/tasks/:id`     | Bearer JWT     | Delete an owned task                     |
+
+Responses use a consistent structure:
+
+```json
+{
+  "data": {}
+}
+```
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid request"
+  }
+}
+```
+
+## Event-driven audit flow
+
+Creating a task publishes a non-sensitive versioned event:
+
+```json
+{
+  "eventType": "task.created",
+  "version": "1",
+  "timestamp": "2026-10-05T00:00:00.000Z",
+  "data": {
+    "taskId": "uuid",
+    "userId": "uuid",
+    "priority": "HIGH"
+  }
+}
+```
+
+SNS delivers the event to the audit queue. Lambda validates both the SNS envelope and the application event, writes a structured CloudWatch log, and reports malformed records as partial batch failures. After three failed receives, SQS moves the record to the DLQ. Passwords, JWTs, and database credentials are never included in events.
+
+## Quality and validation
 
 ```bash
 npm run lint
 npm test
 npm run build
+npm run format:check
+docker compose config --quiet
 docker build -f apps/api/Dockerfile -t cloudtask-api:local .
 terraform fmt -check -recursive infra
 terraform -chdir=infra/bootstrap/terraform init -backend=false
@@ -110,65 +300,180 @@ terraform -chdir=infra/terraform/environments/demo init -backend=false
 terraform -chdir=infra/terraform/environments/demo validate
 ```
 
-All tests use in-memory collaborators and mocked fetch; no AWS credentials or services are called.
+The test suites cover API liveness/readiness, registration validation, login, unauthorized access, task CRUD, user isolation, publisher invocation, authentication UI behavior, dashboard interaction, and valid/malformed Lambda messages. Tests use in-memory collaborators and mocked network calls; they do not contact AWS.
 
-## Terraform and bootstrap
+## CI/CD
 
-The bootstrap state is deliberately separate because it owns the remote-state bucket, immutable ECR repository, OIDC trust/deploy role, and optional budget. It supports either creating GitHub's account-level OIDC provider or reusing an existing ARN, preventing accidental duplicates.
+### Continuous integration
 
-1. Copy `infra/bootstrap/terraform/terraform.tfvars.example` to `terraform.tfvars` and set owner, exact `ORG/REPO`, OIDC choice, and optional budget email.
-2. From `infra/bootstrap/terraform`, run `terraform init`, `terraform plan -out bootstrap.tfplan`, inspect it, then manually run `terraform apply bootstrap.tfplan`.
-3. Record `state_bucket_name`, `ecr_repository_url`, and `github_deployment_role_arn` outputs.
-4. Configure GitHub environment `demo` with protection reviewers. Add repository/environment variables: `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY_URL`, `TF_STATE_BUCKET`, `PROJECT_OWNER`, and optional `ALERT_EMAIL`.
-5. Commit only examples—never `terraform.tfvars`, plans, state, credentials, or secrets.
+The `CI` workflow runs on pull requests and pushes to `main`:
 
-The OIDC trust accepts only this repository's `main` ref or protected `demo` environment subject and `sts.amazonaws.com` audience. No permanent AWS access keys are used. The Terraform deployment policy necessarily has broad resource scope for create-time resources whose ARNs do not yet exist; its permitted services/actions are bounded to this architecture. A production platform should split plan/apply roles and enforce account guardrails or permissions boundaries.
+```text
+npm ci
+  -> lint
+  -> API, frontend, and Lambda tests
+  -> production builds
+  -> API container build
+  -> Trivy HIGH/CRITICAL scan
+  -> Terraform format and validation
+```
 
-## CI/CD flow
+CI does not require AWS credentials.
 
-CI runs on PRs and `main`: install → lint → test → build → Docker build → Trivy HIGH/CRITICAL scan → Terraform format/validate. It needs no AWS identity.
+### Manual demo deployment
 
-Deployment and destruction are `workflow_dispatch` only. Deployment uses OIDC, pushes an immutable commit-SHA image, plans and applies Terraform, builds the SPA against the deployed ALB URL, syncs S3, invalidates CloudFront, and smoke-tests `/health`. Destruction requires the exact input `DESTROY` and preserves bootstrap resources.
+The deployment workflow is intentionally manual and uses a protected GitHub environment:
 
-## Manual demo sequence
+```text
+GitHub OIDC
+  -> assume deployment role
+  -> build and scan API image
+  -> push immutable commit-SHA tag to ECR
+  -> Terraform plan and apply
+  -> build frontend with the deployed API URL
+  -> sync frontend to private S3
+  -> invalidate CloudFront
+  -> smoke-test /health through the ALB
+```
 
-1. Complete bootstrap and GitHub variable setup above.
-2. Push reviewed code to `main` and confirm CI is green.
-3. Run **Deploy demo** with governance off for normal evidence; enable it only briefly when collecting Config evidence.
-4. Confirm the SNS alert email subscription if configured.
-5. Open workflow outputs, CloudFront, and the ALB `/health`; register a demo user and create a task.
-6. Collect the checklist in [docs/evidence/README.md](docs/evidence/README.md).
-7. Run resilience demonstrations below if desired.
-8. Run **Destroy demo** with `DESTROY` the same day and perform the post-destroy billing/resource checks.
+### Guarded destruction
+
+The destroy workflow runs only through `workflow_dispatch` and requires the exact confirmation value `DESTROY`. It destroys the disposable demo environment but deliberately preserves the bootstrap state bucket, ECR repository, OIDC provider or reference, deployment role, and budget.
+
+## Bootstrap before the first deployment
+
+The bootstrap configuration is intentionally separate from the disposable application environment.
+
+```bash
+cd infra/bootstrap/terraform
+cp terraform.tfvars.example terraform.tfvars
+terraform init
+terraform fmt -check
+terraform validate
+terraform plan -out bootstrap.tfplan
+terraform apply bootstrap.tfplan
+terraform output
+```
+
+Review the plan before applying it. Configure these protected GitHub environment or repository variables from the bootstrap outputs:
+
+| GitHub variable       | Value                           |
+| --------------------- | ------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN` | GitHub OIDC deployment role ARN |
+| `ECR_REPOSITORY_URL`  | CloudTask ECR repository URL    |
+| `TF_STATE_BUCKET`     | Terraform state bucket name     |
+| `PROJECT_OWNER`       | Owner tag value                 |
+| `ALERT_EMAIL`         | Optional CloudWatch alarm email |
+
+The bootstrap variables allow an account-level GitHub OIDC provider to be created explicitly or an existing provider ARN to be reused. This prevents attempting to create a duplicate provider.
+
+## Security model
+
+- GitHub Actions uses short-lived OIDC credentials instead of stored AWS access keys.
+- ECS execution, ECS application, Lambda, and GitHub deployment responsibilities use separate IAM roles.
+- The ECS task can publish only to the project SNS topic.
+- The ECS execution role can read only the required SSM parameters.
+- The S3 frontend bucket blocks all public access and allows reads only through CloudFront Origin Access Control.
+- RDS is encrypted, not public, and reachable only through the ECS security group.
+- The runtime container uses a non-root user and excludes development dependencies where practical.
+- ECR tags are immutable, and CI scans the image before deployment.
+- Application logs and events exclude authentication and database secrets.
+
+Terraform-generated secrets still exist in encrypted Terraform state. A production environment should use RDS-managed credentials or AWS Secrets Manager rotation and tightly restrict state access. See [SECURITY.md](SECURITY.md) for the complete threat and control summary.
 
 ## Observability and resilience demonstrations
 
-API and Lambda logs are JSON-friendly and retained for one day. Alarms cover ALB 5XX and sustained ECS CPU, notifying an optional SNS email topic. Container Insights is deliberately disabled.
+### ECS self-healing
 
-- Stop the only ECS task in the console. The service scheduler should launch a replacement and the ALB target should return healthy.
-- Publish an intentionally malformed message through the task-events SNS topic (or queue for targeted testing). Lambda should return the record as failed; after three receives it should appear in the DLQ.
-- Attempt a direct connection to the RDS endpoint from the internet. It should time out because `publicly_accessible=false`, the subnets have no internet route, and port 5432 accepts only the ECS security group.
+1. Stop the single running task without deleting the ECS service.
+2. Observe the desired count remain at one.
+3. Capture the replacement task entering `RUNNING` state.
+4. Confirm the replacement target becomes healthy in the ALB target group.
 
-These are instructions for a later live demo; this repository build does not execute cloud tests.
+### DLQ behavior
 
-## Cost strategy and teardown
+1. Send an intentionally malformed audit event.
+2. Observe Lambda reject the record with a structured validation error.
+3. Allow the queue to retry it three times.
+4. Confirm the message appears in the audit DLQ.
 
-The design avoids the usual demo cost trap: there is no NAT Gateway or Elastic IP. It defaults to one 0.25-vCPU/0.5-GB task, `db.t4g.micro` Single-AZ PostgreSQL with 20 GiB gp3, one-day logs, PriceClass_100 CloudFront, and Config disabled. Use no more than two roughly six-hour sessions and tear down the same day. Exact pricing varies; see [COST.md](COST.md). AWS Budgets sends alerts near $1, $3, and $4.50—it is not a spending cap.
+### Database isolation
 
-Destroy the demo through the workflow, verify the listed regional/global services, then separately clean bootstrap only after remote state is no longer needed. Detailed commands and failure handling are in [docs/runbook.md](docs/runbook.md).
+Attempting to reach the RDS endpoint directly from the internet should time out. Do not weaken the security group for the demonstration; the existing failure proves the control.
 
-## Security decisions
+These demonstrations are intentionally not executed during local validation. Use [docs/evidence/README.md](docs/evidence/README.md) to capture safe, redacted evidence during a short live session.
 
-OIDC removes long-lived CI keys. Separate ECS execution, ECS application, Lambda, and GitHub roles divide responsibilities. SSM SecureString injects the database URL; RDS is isolated; security-group references chain ALB→ECS→RDS; S3 is private behind CloudFront OAC; images are immutable and scanned. Terraform-generated passwords still exist in encrypted Terraform state—production should use Secrets Manager rotation or RDS-managed credentials and tightly controlled state. See [SECURITY.md](SECURITY.md).
+## Demo deployment and teardown
 
-## Production upgrade path
+1. Apply the bootstrap configuration manually.
+2. Configure the protected `demo` GitHub environment and variables.
+3. Confirm CI passes on `main`.
+4. Dispatch **Deploy demo** with governance disabled by default.
+5. Exercise the application and collect evidence.
+6. Enable AWS Config only if governance evidence is required.
+7. Dispatch **Destroy demo** with `DESTROY` on the same day.
+8. Verify ECS, ALB, RDS, Lambda, SQS, SNS, CloudFront, demo S3 buckets, AWS Config, CloudWatch, and VPC resources are gone.
+9. Check Billing or Cost Explorer again the next day because AWS cost reporting can lag.
 
-Move ECS to private subnets and add carefully costed NAT Gateways or VPC endpoints; run at least two tasks across AZs with autoscaling; use RDS Multi-AZ, backups, deletion protection, and managed secret rotation; add Route 53, ACM, HTTPS-only ALB, WAF, longer log retention, continuous Config governance, centralized telemetry, and blue/green or canary deployments. Add a custom domain to eliminate the split CloudFront/ALB origin experience.
+The operational procedure, troubleshooting guidance, and emergency cost shutdown order are documented in [docs/runbook.md](docs/runbook.md).
 
-## Interview talking points
+## Demo trade-offs and production upgrades
 
-- Why public-IP Fargate with SG chaining is a conscious no-NAT demo trade-off, not the production default.
-- How liveness, readiness, ALB health, ECS desired state, and SQS redrive combine into self-healing behavior.
-- Why OIDC, immutable SHA tags, manual environments, plans, scans, and deterministic teardown reduce delivery risk.
-- Why SNS→SQS decouples task creation from audit processing and how partial batch failure enables DLQ evidence.
-- Where secret material appears in Terraform state and how the production design would remove or rotate it.
+| Area              | Cost-optimized demo                                    | Production upgrade                                                    |
+| ----------------- | ------------------------------------------------------ | --------------------------------------------------------------------- |
+| ECS networking    | Public subnets and public IP, ingress only from ALB SG | Private subnets with NAT Gateways or carefully selected VPC endpoints |
+| ECS capacity      | One task                                               | At least two tasks across AZs with autoscaling                        |
+| Database          | Single-AZ `db.t4g.micro`, no retained backup           | Multi-AZ, automated backups, deletion protection, larger class        |
+| API transport     | HTTP ALB listener for a temporary demo                 | Route 53, ACM certificate, HTTPS listener, and HTTP redirect          |
+| Edge security     | CloudFront OAC                                         | AWS WAF on CloudFront and the ALB                                     |
+| Governance        | Temporary scoped Config recorder                       | Continuous organization-level governance                              |
+| Logging           | One-day retention                                      | Retention based on operational and compliance requirements            |
+| Deployment        | ECS rolling update                                     | Blue/green or canary deployment                                       |
+| Event consistency | Database write followed by SNS publish                 | Transactional outbox and idempotent consumers                         |
+| Secrets           | SSM SecureString backed by Terraform state             | Managed rotation through Secrets Manager or RDS                       |
+
+## Evidence checklist
+
+The public portfolio should eventually include redacted proof of:
+
+- a successful CI run;
+- an inspected Terraform plan;
+- the SHA-tagged ECR image;
+- the running ECS service and healthy ALB target;
+- RDS showing `Publicly accessible: No` and the private subnet group;
+- CloudFront with its private S3 origin;
+- structured API and Lambda logs;
+- ALB and ECS CloudWatch alarms;
+- SNS, SQS redrive policy, Lambda invocation, and DLQ behavior;
+- temporary AWS Config compliance;
+- ECS task replacement;
+- successful destruction and final billing verification.
+
+Do not publish account IDs, credentials, tokens, unredacted endpoints, Terraform state, or sensitive console URLs.
+
+## Interview summary
+
+> I built CloudTask as a cloud platform rather than only a web application. I containerized the API, stored immutable images in ECR, deployed to ECS Fargate behind an ALB, isolated PostgreSQL in private RDS subnets, and served the React frontend through private S3 and CloudFront. I codified the architecture with reusable Terraform modules and used GitHub Actions with OIDC so the pipeline does not depend on long-lived AWS keys. I also added an SNS-to-SQS event flow with Lambda and a DLQ, CloudWatch monitoring, optional AWS Config checks, and a guarded destroy workflow. The live architecture avoids a NAT Gateway and is intentionally short-lived so I can demonstrate the platform within a controlled student budget.
+
+Useful follow-up topics for a technical interview:
+
+- Why is S3 and CloudFront a better fit for the SPA than a second container?
+- Why is demo Fargate public while RDS remains isolated?
+- How do OIDC trust conditions prevent another repository from assuming the role?
+- What is the difference between ECS, Fargate, ECR, an ALB, and a target group?
+- How do the ALB health check and ECS desired count produce self-healing behavior?
+- Why use SNS, SQS, partial batch failures, and a DLQ together?
+- Which costs dominate a short demo, and how does teardown control them?
+- What would change before running this architecture continuously in production?
+
+## Project documentation
+
+- [Architecture decisions](docs/architecture/README.md)
+- [Operations and teardown runbook](docs/runbook.md)
+- [Evidence collection checklist](docs/evidence/README.md)
+- [Cost model and guardrails](COST.md)
+- [Security model](SECURITY.md)
+
+## Current status
+
+The application, tests, container definition, Terraform configurations, workflows, and operational documentation are implemented and locally validated. AWS resources are not created automatically by this repository. A real deployment requires deliberate bootstrap, protected GitHub environment configuration, a manual deployment run, evidence collection, and same-day teardown.
