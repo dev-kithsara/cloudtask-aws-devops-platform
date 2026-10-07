@@ -35,6 +35,7 @@ jobs:
             aquasec/trivy:0.75.0 image \
             --image-src docker \
             --scanners vuln \
+            --pkg-types os \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --exit-code 1 \
