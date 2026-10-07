@@ -25,13 +25,20 @@ jobs:
       - name: Build API container
         run: docker build -f apps/api/Dockerfile -t cloudtask-api:${{ github.sha }} .
       - name: Scan API container
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          image-ref: cloudtask-api:${{ github.sha }}
-          format: table
-          exit-code: '1'
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
+        env:
+          IMAGE_REF: cloudtask-api:${{ github.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker run --rm --pull=always \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/trivy-cache:/root/.cache/" \
+            aquasec/trivy:0.75.0 image \
+            --image-src docker \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            "$IMAGE_REF"
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.8
