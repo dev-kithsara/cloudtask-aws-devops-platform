@@ -25,7 +25,7 @@ jobs:
       - name: Build API container
         run: docker build -f apps/api/Dockerfile -t cloudtask-api:${{ github.sha }} .
       - name: Scan API container
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: cloudtask-api:${{ github.sha }}
           format: table
