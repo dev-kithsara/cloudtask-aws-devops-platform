@@ -64,7 +64,17 @@ jobs:
         if: steps.ecr_check.outputs.exists != 'true'
         env:
           IMAGE_URI: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
-        run: docker build -f apps/api/Dockerfile -t "$IMAGE_URI" .
+        run: |
+          for attempt in 1 2 3; do
+            if docker build -f apps/api/Dockerfile -t "$IMAGE_URI" .; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Docker build failed on attempt $attempt; retrying..."
+              sleep 10
+            fi
+          done
+          exit 1
       - name: Scan API container
         if: steps.ecr_check.outputs.exists != 'true'
         env:
