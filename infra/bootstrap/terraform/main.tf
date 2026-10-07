@@ -89,7 +89,12 @@ data "aws_iam_policy_document" "github_trust" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main", "repo:${var.github_repository}:environment:demo"]
+      values   = [
+        "repo:${var.github_repository}:ref:refs/heads/main",
+        "repo:${var.github_repository}:environment:demo",
+        "repo:${split("/", var.github_repository)[0]}*/${split("/", var.github_repository)[1]}*:ref:refs/heads/main",
+        "repo:${split("/", var.github_repository)[0]}*/${split("/", var.github_repository)[1]}*:environment:demo",
+      ]
     }
 
   }
