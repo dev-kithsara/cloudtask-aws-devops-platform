@@ -46,13 +46,22 @@ jobs:
         env:
           IMAGE_URI: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
         run: docker build -f apps/api/Dockerfile -t "$IMAGE_URI" .
-      - uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
-          format: table
-          exit-code: '1'
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
+      - name: Scan API container
+        env:
+          IMAGE_REF: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker run --rm --pull=always \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/trivy-cache:/root/.cache/" \
+            aquasec/trivy:0.75.0 image \
+            --pkg-types os \
+            --image-src docker \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            "$IMAGE_REF"
       - name: Push API image
         run: docker push "${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}"
       - uses: hashicorp/setup-terraform@v3
