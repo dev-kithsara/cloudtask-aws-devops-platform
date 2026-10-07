@@ -66,7 +66,7 @@ jobs:
         run: docker push "${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}"
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.8
+          terraform_version: 1.10.7
       - name: Initialize remote state
         working-directory: infra/terraform/environments/demo
         run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="key=cloudtask/demo/terraform.tfstate" -backend-config="region=${AWS_REGION}" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
