@@ -94,7 +94,23 @@ jobs:
             "$IMAGE_REF"
       - name: Push API image
         if: steps.ecr_check.outputs.exists != 'true'
-        run: docker push "${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}"
+        env:
+          IMAGE_URI: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+          ECR_REPO: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          if ! docker push "$IMAGE_URI"; then
+            REPO_NAME="${ECR_REPO##*/}"
+            if aws ecr describe-images \
+                 --repository-name "$REPO_NAME" \
+                 --image-ids imageTag="${{ github.sha }}" \
+                 --region "$AWS_REGION" \
+                 --output text > /dev/null 2>&1; then
+              echo "Image tag ${{ github.sha }} was verified in ECR."
+            else
+              echo "Failed to push image to ECR."
+              exit 1
+            fi
+          fi
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.10.7
