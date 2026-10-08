@@ -160,7 +160,7 @@ data "aws_iam_policy_document" "github_deploy" {
       "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy",
       "iam:AttachRolePolicy", "iam:DetachRolePolicy",
       "iam:ListAttachedRolePolicies", "iam:ListRolePolicies",
-      "iam:ListInstanceProfilesForRole"
+      "iam:ListInstanceProfilesForRole", "iam:CreateServiceLinkedRole"
     ]
     resources = ["*"]
   }
