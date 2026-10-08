@@ -12,7 +12,7 @@ variable "ecs_security_group_id" {
 }
 variable "instance_class" {
   type    = string
-  default = "db.t4g.micro"
+  default = "db.t3.micro"
 }
 variable "allocated_storage" {
   type    = number

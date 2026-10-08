@@ -37,5 +37,5 @@ variable "desired_count" {
 variable "db_instance_class" {
   description = "Small ARM RDS class for the disposable demo"
   type        = string
-  default     = "db.t4g.micro"
+  default     = "db.t3.micro"
 }
