@@ -134,11 +134,35 @@ data "aws_iam_policy_document" "github_deploy" {
   statement {
     sid = "CloudTaskInfrastructure"
     actions = [
-      "ec2:Describe*", "ec2:CreateVpc", "ec2:DeleteVpc", "ec2:CreateSubnet", "ec2:DeleteSubnet", "ec2:ModifySubnetAttribute", "ec2:CreateInternetGateway", "ec2:DeleteInternetGateway", "ec2:AttachInternetGateway", "ec2:DetachInternetGateway", "ec2:CreateRouteTable", "ec2:DeleteRouteTable", "ec2:AssociateRouteTable", "ec2:DisassociateRouteTable", "ec2:CreateRoute", "ec2:DeleteRoute", "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup", "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress", "ec2:CreateTags", "ec2:DeleteTags",
-      "elasticloadbalancing:*", "ecs:*", "rds:*", "lambda:*", "sqs:*", "sns:*", "logs:*", "cloudwatch:*", "ssm:GetParameter", "ssm:GetParameters", "ssm:PutParameter", "ssm:DeleteParameter", "cloudfront:*", "config:*", "s3:*", "iam:GetRole", "iam:CreateRole", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole", "iam:PassRole", "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies", "iam:ListInstanceProfilesForRole"
+      "ec2:Describe*", "ec2:CreateVpc", "ec2:DeleteVpc",
+      "ec2:ModifyVpcAttribute", "ec2:ModifyVpcEndpoint",
+      "ec2:CreateSubnet", "ec2:DeleteSubnet", "ec2:ModifySubnetAttribute",
+      "ec2:CreateInternetGateway", "ec2:DeleteInternetGateway",
+      "ec2:AttachInternetGateway", "ec2:DetachInternetGateway",
+      "ec2:CreateRouteTable", "ec2:DeleteRouteTable",
+      "ec2:AssociateRouteTable", "ec2:DisassociateRouteTable",
+      "ec2:CreateRoute", "ec2:DeleteRoute",
+      "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
+      "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress",
+      "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress",
+      "ec2:ModifySecurityGroupRules",
+      "ec2:CreateTags", "ec2:DeleteTags",
+      "ec2:AllocateAddress", "ec2:ReleaseAddress",
+      "ec2:AssociateAddress", "ec2:DisassociateAddress",
+      "elasticloadbalancing:*", "ecs:*", "rds:*", "lambda:*",
+      "sqs:*", "sns:*", "logs:*", "cloudwatch:*",
+      "ssm:GetParameter", "ssm:GetParameters", "ssm:PutParameter",
+      "ssm:DeleteParameter", "ssm:DescribeParameters", "ssm:AddTagsToResource",
+      "ssm:ListTagsForResource", "ssm:RemoveTagsFromResource",
+      "cloudfront:*", "config:*", "s3:*",
+      "iam:GetRole", "iam:CreateRole", "iam:DeleteRole",
+      "iam:TagRole", "iam:UntagRole", "iam:PassRole",
+      "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy",
+      "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+      "iam:ListAttachedRolePolicies", "iam:ListRolePolicies",
+      "iam:ListInstanceProfilesForRole"
     ]
     resources = ["*"]
-
   }
 }
 resource "aws_iam_role_policy" "github" {
