@@ -127,7 +127,11 @@ data "aws_iam_policy_document" "github_deploy" {
   }
   statement {
     sid       = "EcrRepository"
-    actions   = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage", "ecr:PutImage", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload"]
+    actions   = [
+      "ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage",
+      "ecr:PutImage", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload",
+      "ecr:DescribeImages", "ecr:ListImages"
+    ]
     resources = [var.create_ecr_repository ? aws_ecr_repository.api[0].arn : "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/cloudtask-api"]
 
   }
